@@ -23,8 +23,8 @@ func NewService() *Service {
 
 // Install installs registry capabilities to eng.
 func (s *Service) Install(eng *engine.Engine) error {
-	eng.Register("auth", s.Auth)
-	eng.Register("search", s.Search)
+	eng.Register("auth", s.Auth)     //auth：向共有的registry进行认证
+	eng.Register("search", s.Search) //search:在共有的registry上搜索指定的镜像
 	return nil
 }
 

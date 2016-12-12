@@ -29,12 +29,13 @@ func Register(eng *engine.Engine) error {
 		return err
 	}
 
-	//版本信息
+	//向名为version的job的标准输出写入Docker版本，Docker API版本，Go版本等信息
 	if err := eng.Register("version", dockerVersion); err != nil {
 		return err
 	}
 
-	//注册register handler ”auth”，向公有registry进行认证；”search”，在公有registry上搜索指定的镜像
+	//在engine的对外暴露的API中添加docker register的信息。
+	//注册register handler "auth"，向公有registry进行认证；"search"，在公有registry上搜索指定的镜像
 	return registry.NewService().Install(eng)
 }
 
