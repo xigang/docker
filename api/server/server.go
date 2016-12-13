@@ -1049,10 +1049,13 @@ func makeHttpHandler(eng *engine.Engine, logging bool, localMethod string, local
 		if version == "" {
 			version = api.APIVERSION
 		}
+
+		//对客户端的请求进行跨域处理
 		if enableCors {
 			writeCorsHeaders(w, r)
 		}
 
+		//判断客户端和服务员是否具有相同的版本
 		if version.GreaterThan(api.APIVERSION) {
 			http.Error(w, fmt.Errorf("client and server don't have same version (client : %s, server: %s)", version, api.APIVERSION).Error(), http.StatusNotFound)
 			return
@@ -1154,11 +1157,11 @@ func createRouter(eng *engine.Engine, logging, enableCors bool, dockerVersion st
 			localFct := fct
 			localMethod := method
 
-			// build the handler function
+			// build the handler function, 创建一个HandlerFunc
 			f := makeHttpHandler(eng, logging, localMethod, localRoute, localFct, enableCors, version.Version(dockerVersion))
 
 			// add the new route
-			if localRoute == "" {
+			if localRoute == "" { //如果map中没有则增加一个route
 				r.Methods(localMethod).HandlerFunc(f)
 			} else {
 				r.Path("/v{version:[0-9.]+}" + localRoute).Methods(localMethod).HandlerFunc(f)
@@ -1252,6 +1255,7 @@ func ListenAndServe(proto, addr string, job *engine.Job) error {
 		return err
 	}
 
+	//如果使用fd://xxx 协议则创建FD服务
 	if proto == "fd" {
 		return ServeFd(addr, r)
 	}
@@ -1280,6 +1284,7 @@ func ListenAndServe(proto, addr string, job *engine.Job) error {
 		return err
 	}
 
+	//创建TCP服务
 	if proto != "unix" && (job.GetenvBool("Tls") || job.GetenvBool("TlsVerify")) {
 		tlsCert := job.Getenv("TlsCert")
 		tlsKey := job.Getenv("TlsKey")
@@ -1347,6 +1352,7 @@ func ServeApi(job *engine.Job) engine.Status {
 	)
 	activationLock = make(chan struct{})
 
+	//遍历所有协议，根据不同的协议创建不同的http.Serve
 	for _, protoAddr := range protoAddrs {
 		protoAddrParts := strings.SplitN(protoAddr, "://", 2)
 		if len(protoAddrParts) != 2 {
@@ -1358,6 +1364,7 @@ func ServeApi(job *engine.Job) engine.Status {
 		}()
 	}
 
+	//对返回的错误进行处理
 	for i := 0; i < len(protoAddrs); i += 1 {
 		err := <-chErrors
 		if err != nil {
@@ -1368,6 +1375,7 @@ func ServeApi(job *engine.Job) engine.Status {
 	return engine.StatusOK
 }
 
+//AcceptConnections 通知init守护进程，Docker daemon准备接受请求
 func AcceptConnections(job *engine.Job) engine.Status {
 	// Tell the init daemon we are accepting requests
 	go systemd.SdNotify("READY=1")

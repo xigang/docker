@@ -18,14 +18,14 @@ import (
 const DEFAULTTAG = "latest"
 
 type TagStore struct {
-	path         string
-	graph        *Graph
-	Repositories map[string]Repository
-	sync.Mutex
+	path         string                //TagStore中记录镜像的仓库文件的位置
+	graph        *Graph                //相应的graph实例对象
+	Repositories map[string]Repository //记录具体镜像仓库的数据结构
+	sync.Mutex                         //TagStore的互斥锁
 	// FIXME: move push/pull-related fields
 	// to a helper type
-	pullingPool map[string]chan struct{}
-	pushingPool map[string]chan struct{}
+	pullingPool map[string]chan struct{} //记录池，记录有哪些镜像正在被下载，若某一个镜像正在被下载，则驳回其他Docker Client发起下载该镜像的请求；
+	pushingPool map[string]chan struct{} //记录池，记录有哪些镜像正在被上传，若某一个镜像正在被上传，则驳回其他Docker Client发起上传该镜像的请求；
 }
 
 type Repository map[string]string

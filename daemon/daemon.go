@@ -129,11 +129,14 @@ func (daemon *Daemon) Install(eng *engine.Engine) error {
 			return err
 		}
 	}
+
+	//向eng对象注册多个与image相关的Handler
 	if err := daemon.Repositories().Install(eng); err != nil {
 		return err
 	}
 	// FIXME: this hack is necessary for legacy integration tests to access
 	// the daemon object.
+	// 向eng对象中map类型的hack对象中添加一条记录
 	eng.Hack_SetGlobalVar("httpapi.daemon", daemon)
 	return nil
 }
@@ -663,6 +666,7 @@ func (daemon *Daemon) RegisterLinks(container *Container, hostConfig *runconfig.
 
 // FIXME: harmonize with NewGraph()
 func NewDaemon(config *Config, eng *engine.Engine) (*Daemon, error) {
+	//NewDaemonFromDirectory 实现创建Daemon的运行环境
 	daemon, err := NewDaemonFromDirectory(config, eng)
 	if err != nil {
 		return nil, err
@@ -672,22 +676,28 @@ func NewDaemon(config *Config, eng *engine.Engine) (*Daemon, error) {
 
 func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error) {
 	// Apply configuration defaults
+	// 配置容器网络的MTU
 	if config.Mtu == 0 {
 		// FIXME: GetDefaultNetwork Mtu doesn't need to be public anymore
-		config.Mtu = GetDefaultNetworkMtu()
+		config.Mtu = GetDefaultNetworkMtu() //MTU 默认1500
 	}
 	// Check for mutually incompatible config options
+	// 检测网桥配置,作用为创建网桥init_networkdriver job提供参数
 	if config.BridgeIface != "" && config.BridgeIP != "" {
 		return nil, fmt.Errorf("You specified -b & --bip, mutually exclusive options. Please specify only one.")
 	}
+
+	//检验容器通信配置，EnableIptables启用Docker对iptabls规则的添加，InterContainerCommunication检测容器之间是否可以相互通讯
 	if !config.EnableIptables && !config.InterContainerCommunication {
 		return nil, fmt.Errorf("You specified --iptables=false with --icc=false. ICC uses iptables to function. Please set --icc or --iptables to true.")
 	}
 	// FIXME: DisableNetworkBidge doesn't need to be public anymore
+	// 处理网络功能配置
 	config.DisableNetwork = config.BridgeIface == DisableNetworkBridge
 
 	// Claim the pidfile first, to avoid any and all unexpected race conditions.
 	// Some of the init doesn't need a pidfile lock - but let's not try to be smart.
+	// 处理PID文件配置，为Docker Daemon运行时PID号创建一个PID文件
 	if config.Pidfile != "" {
 		if err := utils.CreatePidFile(config.Pidfile); err != nil {
 			return nil, err
@@ -700,21 +710,27 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 
 	// Check that the system is supported and we have sufficient privileges
 	// FIXME: return errors instead of calling Fatal
-	if runtime.GOOS != "linux" {
+	// 检测系统的支持及用户权限
+	if runtime.GOOS != "linux" { //检测系统的支持
 		log.Fatalf("The Docker daemon is only supported on linux")
 	}
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 { //返回调用者的有效用户ID,需要以root的身份运行
 		log.Fatalf("The Docker daemon needs to be run as root")
 	}
+
+	//内核版本与处理器的支持，1.检测运行的处理器架构，目前只支持amd64. 2.检测Linux版本是否满足需求，最低版本3.8.0
 	if err := checkKernelAndArch(); err != nil {
 		log.Fatalf(err.Error())
 	}
 
 	// set up the TempDir to use a canonical path
+	// 配置Docker Daemon运行中的工作路径，实现通过config的Root属性来完成
 	tmp, err := utils.TempDir(config.Root)
 	if err != nil {
 		log.Fatalf("Unable to get the TempDir under %s: %s", config.Root, err)
 	}
+
+	//通过tmp,创建一个指向tmp的文件符号连接realTmp
 	realTmp, err := utils.ReadSymlinkedDirectory(tmp)
 	if err != nil {
 		log.Fatalf("Unable to get the full path to the TempDir (%s): %s", tmp, err)
@@ -736,14 +752,17 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	}
 	config.Root = realRoot
 	// Create the root directory if it doesn't exists
+	// 默认在/var/lib/docker
 	if err := os.MkdirAll(config.Root, 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 
 	// Set the default driver
+	// 加载并配置存储驱动，Graphdriver用于完成Docker容器镜像的管理，包括存储和获取
 	graphdriver.DefaultDriver = config.GraphDriver
 
 	// Load storage driver
+	// 加载graph的存储驱动
 	driver, err := graphdriver.New(config.Root, config.GraphOptions)
 	if err != nil {
 		return nil, err
@@ -751,10 +770,12 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	log.Debugf("Using graph driver %s", driver)
 
 	// As Docker on btrfs and SELinux are incompatible at present, error on both being enabled
+	// 目前在btrfs文件系统上运行的Docker不兼容SELinux
 	if config.EnableSelinuxSupport && driver.String() == "btrfs" {
 		return nil, fmt.Errorf("SELinux is not supported with the BTRFS graph driver!")
 	}
 
+	//创建容器仓库目录,当Docker Daemon创建Docker容器之后，需要将Container放入到	某个仓库目录下。
 	daemonRepo := path.Join(config.Root, "containers")
 
 	if err := os.MkdirAll(daemonRepo, 0700); err != nil && !os.IsExist(err) {
@@ -762,11 +783,13 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	}
 
 	// Migrate the container if it is aufs and aufs is enabled
+	// 当graphdriver的类型为aufs时，需要将现有的graph所有内容都迁移至aufs类型；若不为aufs，则继续往下执行
 	if err = migrateIfAufs(driver, config.Root); err != nil {
 		return nil, err
 	}
 
 	log.Debugf("Creating images graph")
+	//创建一个全新的Graph镜像，存储所有标记的文件系统镜像，并记录镜像之间的关系
 	g, err := graph.NewGraph(path.Join(config.Root, "graph"), driver)
 	if err != nil {
 		return nil, err
@@ -774,21 +797,25 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 
 	// We don't want to use a complex driver like aufs or devmapper
 	// for volumes, just a plain filesystem
+	// 使用vfs创建volumesDriver
 	volumesDriver, err := graphdriver.GetDriver("vfs", config.Root, config.GraphOptions)
 	if err != nil {
 		return nil, err
 	}
 	log.Debugf("Creating volumes graph")
+	//创建相应的valumes目录，并返回volumes graph对象
 	volumes, err := graph.NewGraph(path.Join(config.Root, "volumes"), volumesDriver)
 	if err != nil {
 		return nil, err
 	}
 	log.Debugf("Creating repository list")
+	//TagStore主要用于存储镜像仓库列表
 	repositories, err := graph.NewTagStore(path.Join(config.Root, "repositories-"+driver.String()), g)
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store: %s", err)
 	}
 
+	//创建Docker Daemon的网络环境
 	if !config.DisableNetwork {
 		job := eng.Job("init_networkdriver")
 
@@ -804,6 +831,7 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 		}
 	}
 
+	//创建并初始化graphdb，docker daemon使用graphdb来记录镜像之间的关系
 	graphdbPath := path.Join(config.Root, "linkgraph.db")
 	graph, err := graphdb.NewSqliteConn(graphdbPath)
 	if err != nil {
@@ -831,13 +859,17 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	}
 
 	sysInfo := sysinfo.New(false)
+	//ExecDriver 是Docker用来执行Docker container任务的驱动
+	//config.ExecDriver Docker运行时指定的exec类别，默认是native,也可以设置成lxc.
+	//config.Root Docker运行时的root路径，默认是:/var/lib/docker
 	ed, err := execdrivers.NewDriver(config.ExecDriver, config.Root, sysInitPath, sysInfo)
 	if err != nil {
 		return nil, err
 	}
 
+	//创建daemon对象
 	daemon := &Daemon{
-		repository:     daemonRepo,
+		repository:     daemonRepo, //容器仓库目录
 		containers:     &contStore{s: make(map[string]*Container)},
 		graph:          g,
 		repositories:   repositories,
@@ -851,9 +883,15 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 		execDriver:     ed,
 		eng:            eng,
 	}
+
+	//检测docker运行环境中的DNS配置
 	if err := daemon.checkLocaldns(); err != nil {
 		return nil, err
 	}
+
+	//当Docker Daemon启动时，会去查看在daemon.repository，
+	//也就是在/var/lib/docker/containers中的内容。若有存在Docker container的话，
+	//则让Docker Daemon加载这部分运行着的容器，将容器信息收集，并做相应的维护。
 	if err := daemon.restore(); err != nil {
 		return nil, err
 	}
@@ -866,12 +904,18 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 		if err := daemon.shutdown(); err != nil {
 			log.Errorf("daemon.shutdown(): %s", err)
 		}
+
+		//释放之前占用的资源
 		if err := portallocator.ReleaseAll(); err != nil {
 			log.Errorf("portallocator.ReleaseAll(): %s", err)
 		}
+
+		//通过graphdriver实现unmount所有layers中的挂载点
 		if err := daemon.driver.Cleanup(); err != nil {
 			log.Errorf("daemon.driver.Cleanup(): %s", err.Error())
 		}
+
+		// 关闭graphdb的连接
 		if err := daemon.containerGraph.Close(); err != nil {
 			log.Errorf("daemon.containerGraph.Close(): %s", err.Error())
 		}
@@ -1051,10 +1095,12 @@ func (daemon *Daemon) ContainerGraph() *graphdb.Database {
 }
 
 func (daemon *Daemon) checkLocaldns() error {
+	//获取/etc/resolv.conf中的DNS服务器信息
 	resolvConf, err := resolvconf.Get()
 	if err != nil {
 		return err
 	}
+	//若本地DNS文件中含有127.0.0.1，而Docker container不能使用该地址，故采用默认的外在DNS地址8.8.8.8
 	if len(daemon.config.Dns) == 0 && utils.CheckLocalDns(resolvConf) {
 		log.Infof("Local (127.0.0.1) DNS resolver found in resolv.conf and containers can't use it. Using default external servers : %v", DefaultDns)
 		daemon.config.Dns = DefaultDns
