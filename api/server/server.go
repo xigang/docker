@@ -1246,6 +1246,7 @@ func changeGroup(addr string, nameOrGid string) error {
 // each addr passed in and does protocol specific checking.
 func ListenAndServe(proto, addr string, job *engine.Job) error {
 	var l net.Listener
+	//创建一个router
 	r, err := createRouter(job.Eng, job.GetenvBool("Logging"), job.GetenvBool("EnableCors"), job.Getenv("Version"))
 	if err != nil {
 		return err
