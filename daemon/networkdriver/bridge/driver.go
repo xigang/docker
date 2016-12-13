@@ -76,6 +76,7 @@ var (
 	currentInterfaces = ifaces{c: make(map[string]*networkInterface)}
 )
 
+//InitDriver 设置Docker的网络
 func InitDriver(job *engine.Job) engine.Status {
 	var (
 		network        *net.IPNet
@@ -91,12 +92,12 @@ func InitDriver(job *engine.Job) engine.Status {
 
 	bridgeIface = job.Getenv("BridgeIface")
 	usingDefaultBridge := false
-	if bridgeIface == "" {
+	if bridgeIface == "" { //判断docker是否有专属的网桥，如果没有则设置默认的网桥，如果存在则继续往下走
 		usingDefaultBridge = true
-		bridgeIface = DefaultNetworkBridge
+		bridgeIface = DefaultNetworkBridge //使用默认的docker0网桥
 	}
 
-	addr, err := networkdriver.GetIfaceAddr(bridgeIface)
+	addr, err := networkdriver.GetIfaceAddr(bridgeIface) //返回网络的地址
 	if err != nil {
 		// If we're not using the default bridge, fail without trying to create it
 		if !usingDefaultBridge {
@@ -105,6 +106,7 @@ func InitDriver(job *engine.Job) engine.Status {
 		}
 		// If the iface is not found, try to create it
 		job.Logf("creating new bridge for %s", bridgeIface)
+		//创建一个网桥，并未该网桥配置一个与其他设备不冲突的网络地址
 		if err := createBridge(bridgeIP); err != nil {
 			return job.Error(err)
 		}
@@ -130,12 +132,15 @@ func InitDriver(job *engine.Job) engine.Status {
 	}
 
 	// Configure iptables for link support
+	// 为容器的以及host主机配置iptables，包括为容器之间所需要的link操作提供支持，为host主机上的所有对内的流量指定传输规则
 	if enableIPTables {
+		//addr为docker网桥的网络地址,icc=true允许Docker容器间互相访问
 		if err := setupIPTables(addr, icc); err != nil {
 			return job.Error(err)
 		}
 	}
 
+	//启用系统数据包转发功能
 	if ipForward {
 		// Enable IPv4 forwarding
 		if err := ioutil.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte{'1', '\n'}, 0644); err != nil {
@@ -144,6 +149,7 @@ func InitDriver(job *engine.Job) engine.Status {
 	}
 
 	// We can always try removing the iptables
+	// 创建一个docker链，该链的作用是在创建Docker container并设置端口映射时使用
 	if err := iptables.RemoveExistingChain("DOCKER"); err != nil {
 		return job.Error(err)
 	}
@@ -162,18 +168,19 @@ func InitDriver(job *engine.Job) engine.Status {
 	job.Eng.Hack_SetGlobalVar("httpapi.bridgeIP", bridgeNetwork.IP)
 
 	for name, f := range map[string]engine.Handler{
-		"allocate_interface": Allocate,
-		"release_interface":  Release,
-		"allocate_port":      AllocatePort,
-		"link":               LinkContainers,
+		"allocate_interface": Allocate,       //为docker container分配专属的网卡
+		"release_interface":  Release,        //释放网卡资源
+		"allocate_port":      AllocatePort,   //为docker container分配一个端口
+		"link":               LinkContainers, //实现容器间的link操作
 	} {
-		if err := job.Eng.Register(name, f); err != nil {
+		if err := job.Eng.Register(name, f); err != nil { //向engine中注册handler
 			return job.Error(err)
 		}
 	}
 	return engine.StatusOK
 }
 
+//设置iptables规则
 func setupIPTables(addr net.Addr, icc bool) error {
 	// Enable NAT
 	natArgs := []string{"POSTROUTING", "-t", "nat", "-s", addr.String(), "!", "-o", bridgeIface, "-j", "MASQUERADE"}
