@@ -80,7 +80,7 @@ func mainDaemon() {
 	)
 
 	// Serve api
-	// Serve api的创建及运行
+	// Serve api的创建及运行,根据flHosts的不同协议创建多个serverapi goroutinue,接收客户端不同协议请求
 	job := eng.Job("serveapi", flHosts...)       //让Docker Daemon提供API访问服务，flHosts提供使用的协议及监听地址
 	job.SetenvBool("Logging", true)              //设置日志
 	job.SetenvBool("EnableCors", *flEnableCors)  //设置跨域
