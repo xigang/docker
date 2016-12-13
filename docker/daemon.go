@@ -53,7 +53,7 @@ func mainDaemon() {
 	go func() {
 		//1.创建一个daemon对象,初始化Docker daemon的基本环境，如处理config参数，验证系统的支持度，
 		//配置Docker的工作目录，设置加载driver,创建graph环境。
-		d, err := daemon.NewDaemon(daemonCfg, eng)
+		d, err := daemon.NewDaemon(daemonCfg, eng) //统一管理Docker Daemon的资源
 		if err != nil {
 			log.Fatal(err)
 		}
